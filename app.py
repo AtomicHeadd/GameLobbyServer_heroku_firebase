@@ -7,6 +7,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sql_util import Room, RoomState
 import random
+import os
+
+from dotenv import load_dotenv
+load_dotenv()
+
+env = os.environ.copy()
 
 DB_URL = 'GO_VISIT_POSTGRESQL_SETTINGS_AND_COPY_CREDENTIALS_URI_AND_PASTE_HERE'
 engine = create_engine(DB_URL)

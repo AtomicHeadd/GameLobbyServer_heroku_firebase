@@ -1,9 +1,9 @@
 import requests
 
-url = "http://localhost:5000/"
+url = "http://133.130.90.210:8000/"
 
 def get_room_test():
-    url = "http://localhost:5000/get_room/"
+    url = "http://133.130.90.210:8000/" +"get_room/"
     params = {
         "room_id": 619041,
         "guid": 30,
@@ -50,5 +50,5 @@ def leave_room():
     print(response.content)
         
 if __name__ == "__main__":
-    # update_room_test()
+    get_room_test()
     leave_room()
