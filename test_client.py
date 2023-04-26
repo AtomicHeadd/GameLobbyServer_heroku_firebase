@@ -1,20 +1,26 @@
 import requests
 
-url = "http://133.130.90.210:8000/"
+base = "http://localhost:5000/"
 
 def get_room_test():
-    url = "http://133.130.90.210:8000/" +"get_room/"
+    url = "http://localhost:5000" +"get_room/"
     params = {
         "room_id": 619041,
         "guid": 30,
     }      
     response = requests.get(url, params=params)
     print(response.content)
+
+def get_all_room_test():
+    url = base + "get_all_room"
+    response = requests.get(url)
+    print(response.content)
+
         
 def join_room_test():
     url = "http://localhost:5000/join/"
     data = {
-        "room_id": 619041,
+        # "room_id": 619041,
         "guid": 30
     }
     response = requests.post(url, data=data)
@@ -50,5 +56,7 @@ def leave_room():
     print(response.content)
         
 if __name__ == "__main__":
-    get_room_test()
-    leave_room()
+    # create_room_test()
+    # get_all_room_test()
+    join_room_test()
+    # leave_room()

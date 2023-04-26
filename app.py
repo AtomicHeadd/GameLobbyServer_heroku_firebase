@@ -1,51 +1,41 @@
-from flask import Flask
-app = Flask(__name__)
-from flask import request, jsonify
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.types import Integer, String
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sql_util import Room, RoomState
+from flask import Flask, request, jsonify
 import random
+import json
 import os
 
-from dotenv import load_dotenv
-load_dotenv()
+import pyrebase
 
-env = os.environ.copy()
+env = json.load(open(".env", "r"))
+print(env)
 
-DB_URL = 'GO_VISIT_POSTGRESQL_SETTINGS_AND_COPY_CREDENTIALS_URI_AND_PASTE_HERE'
-engine = create_engine(DB_URL)
+# https://github.com/nhorvath/Pyrebase4
+app = Flask(__name__)
+firebase = pyrebase.initialize_app(env["config"])
+db = firebase.database()
 
 # required: guid
 @app.route("/create_room/", methods=['POST'])
 def create_room():
     if "guid" not in request.form:
         return "No Room Found."
-    SessionClass = sessionmaker(engine)
-    session = SessionClass()
-    all_rooms = session.query(Room).all()
-    room_ids = [room.room_id for room in all_rooms]
+    all_rooms = db.child("room").get()
+    room_ids = [room.val()["room_id"] for room in all_rooms.each()]
+    print(room_ids)
     room_id = random.randint(0,1000000)
-    while (room_id in room_ids): room_id = random.randint(0,1000000)
-    new_room = Room(room_id=room_id, first_guid=request.form["guid"])
-    session.add(new_room)
-    session.commit()
-    json_text = new_room.get_state_dict()
+    while room_id in room_ids: room_id = random.randint(0,1000000)
+    new_room = {"guid_list" : request.form["guid"], "player_count" : 1, "room_id": room_id}
+    json_text = new_room
     json_text["player_index"] = 0
-    session.close()
     return jsonify(json_text)
 
 # 30件返す
 @app.route("/get_all_room/", methods=["GET"])
 def get_rooms():
-    SessionClass = sessionmaker(engine)
-    session = SessionClass()
-    room = session.query(Room).filter(Room.player_count < 5, Room.is_private==False, Room.room_state==RoomState.WAITING.value).limit(30).all()
-    if room is None: return "No Room Found."
-    room_info_list = []
-    for i in room:
-        room_info_list.append({"room_id": i.room_id, "player_count": i.player_count})
+    all_rooms = db.child("room").get()
+    if all_rooms is None: return "No Room Found."
+    all_rooms = [room.val() for room in all_rooms.each()]
+    all_rooms = [room for room in all_room if room["player_count"] < 4][:30]
+    room_info_list = [{"room_id": room["room_id"], "player_count": room["player_count"]} for room in all_room]
     print(room_info_list)
     return jsonify(room_info_list)
     
@@ -53,28 +43,21 @@ def get_rooms():
 # optional: room_id if you join specific room
 @app.route("/join/", methods=['POST'])
 def join():
-    if "guid" not in request.form:
-        return "No Room Found."
-    SessionClass = sessionmaker(engine)
-    session = SessionClass()
-    if "room_id" not in request.form:
-        # 野良参加
-        room = session.query(Room).filter(Room.player_count < 5, Room.is_private==False, Room.room_state==RoomState.WAITING.value).first()   
+    if "guid" not in request.form: return "No Room Found."
+    all_rooms = [room.val() for room in db.child("room").get().each()]
+    public_join = "room_id" not in request.form
+    if public_join: candidates = all_rooms
     else:
         room_id = int(request.form["room_id"])
-        print(room_id)
-        room = session.query(Room).filter(Room.player_count < 5, Room.room_id==room_id, Room.room_state==RoomState.WAITING.value).first()
-    if room is None: return "No Room Found."
-    guids, _, _ = room.get_lists()
-    if request.form["guid"] in guids:
-        return jsonify(room.get_state_dict())
-    room.player_count += 1
-    guids[room.player_count -1] = request.form["guid"]
-    room.guids = ",".join(guids)
-    session.commit()
-    json_text = room.get_state_dict()
-    json_text["player_index"] = room.player_count - 1
-    session.close()
+        candidates = [room for room in all_rooms if room["room_id"] == room_id]
+    if len(candidates) == 0: return "No Room Found."
+    room = candidates[0]
+    if request.form["guid"] in str(room["guid_list"]): return jsonify(room)
+    room["player_count"] += 1
+    guid_list = str(room["guid_list"]).split(",")
+    guid_list.append(request.form["guid"])
+    room["guid_list"] = str(guid_list)
+    json_text = {**room, "player_index": room["player_count"] - 1}
     return jsonify(json_text)
 
 # requried: room_id: int, guid: int
@@ -82,17 +65,14 @@ def join():
 def get_room_state():
     room_id = request.args.get("room_id", 0)
     guid = request.args.get("guid", " ")
-    if room_id is 0 or guid is " ": return "No Room Found."
-    SessionClass = sessionmaker(engine)
-    session = SessionClass()
-    room = session.query(Room).filter(Room.room_id == room_id).first()
-    if (room is None): return "No Room Found."
-    guids, _, _ = room.get_lists()
-    if (guid not in guids): return "No Room Found."
-    json_text = room.get_state_dict()
-    json_text["player_index"] = guids.index(guid)
-    json_text["invision_index"] = room.invision_index
-    session.close()
+    if room_id == 0 or guid == " ": return "No Room Found."
+    all_rooms = [room.val() for room in db.child("room").get().each()]
+    room = [room for room in all_rooms if room["room_id"] == room_id]
+    if len(room) == 0: return "No Room Found."
+    room = room[0]
+    if guid not in str(room["guild_list"]): return "No Room Found."
+    guids = room["guid_list"].split(",")
+    json_text = {**room, "player_index": guids.index(guid)}
     return jsonify(json_text)
 
 # requried: room_id: int, guid: int
@@ -100,8 +80,6 @@ def get_room_state():
 def leave_room():
     if "room_id" not in request.form or "guid" not in request.form:
         return "Failed"
-    SessionClass = sessionmaker(engine)
-    session = SessionClass()
     room = session.query(Room).filter(Room.room_id == int(request.form["room_id"])).first()
     if room is None: return "Failed"
     guids, endpoints, ports = room.get_lists()
@@ -109,8 +87,6 @@ def leave_room():
     room.player_count -= 1
     if room.player_count == 0: 
         session.delete(room)
-        session.commit()
-        session.close()
         return "Success"
     player_index = guids.index(request.form["guid"])
     guids.pop(player_index).append("0")
@@ -119,8 +95,6 @@ def leave_room():
     room.endpoints = ",".join(endpoints)
     room.invalid_endpoints = ",".join(ports)
     room.guids = ",".join(guids)
-    session.commit()
-    session.close()
     return "Success"
 
 # 部屋更新。スタート処理、エンドポイント設定、ポート無効報告
@@ -132,8 +106,6 @@ def update_room_state():
         return "No Room Found."
     room_id = int(request.form["room_id"])
     guid = request.form["guid"]
-    SessionClass = sessionmaker(engine)
-    session = SessionClass()
     room = session.query(Room).filter(Room.room_id == room_id).first()
     if (room is None): return "No Room Found."
     guids, endpoints, ports = room.get_lists()
